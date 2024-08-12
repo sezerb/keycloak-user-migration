@@ -50,4 +50,9 @@ public class InMemoryUserRepository implements UserRepository {
                 .filter(u -> u.getEmail().equals(email))
                 .findFirst();
     }
+
+    @Override
+    public void save(User user) {
+        users.add(user);
+    }
 }

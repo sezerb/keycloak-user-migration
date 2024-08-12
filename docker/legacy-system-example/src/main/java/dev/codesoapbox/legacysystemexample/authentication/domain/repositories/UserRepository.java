@@ -12,4 +12,6 @@ public interface UserRepository {
     List<User> findAll();
 
     Optional<User> findByEmail(String email);
+
+    void save(User user);
 }

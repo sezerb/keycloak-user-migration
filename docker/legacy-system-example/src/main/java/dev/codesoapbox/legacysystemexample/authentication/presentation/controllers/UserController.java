@@ -8,11 +8,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping(value = AuthenticationControllerPaths.USERS_PATH, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -34,4 +33,18 @@ public class UserController {
 
         return ResponseEntity.ok(testUsers);
     }
+
+    @PostMapping()
+    @Operation(summary = "Helper endpoint that creates a new user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "User created successfully")})
+    public ResponseEntity<Void> createUser(@RequestBody User user) {
+        Optional<User> existingUser = userRepository.findByUsername(user.getUsername());
+        if (existingUser.isPresent()) {
+            return ResponseEntity.status(409).build();
+        }
+        userRepository.save(user);
+        return ResponseEntity.status(201).build();
+    }
+
 }
