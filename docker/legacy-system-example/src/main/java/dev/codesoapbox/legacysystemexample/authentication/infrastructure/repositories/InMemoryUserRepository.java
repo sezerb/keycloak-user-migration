@@ -3,24 +3,25 @@ package dev.codesoapbox.legacysystemexample.authentication.infrastructure.reposi
 import dev.codesoapbox.legacysystemexample.authentication.domain.model.User;
 import dev.codesoapbox.legacysystemexample.authentication.domain.repositories.UserRepository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
 public class InMemoryUserRepository implements UserRepository {
 
-    private final List<User> users;
+    private List<User> users;
 
     public InMemoryUserRepository() {
-        this.users = List.of(
-                generateUser("Lucy", "Brennan"),
-                generateUser("Mark", "Brown"),
-                generateUser("Kate", "Thomson"),
-                generateUser("John", "Doe")
-        );
+        this.users = new ArrayList<>();
+        users.add(generateUser("Lucy", "Brennan"));
+        users.add(generateUser("Mark", "Brown"));
+        users.add(generateUser("Kate", "Thomson"));
+        users.add(generateUser("John", "Doe"));
     }
 
-    private User generateUser(String name, String lastName) {
+
+    protected User generateUser(String name, String lastName) {
         String username = name.toLowerCase(Locale.ROOT);
 
         return User.builder()
@@ -54,5 +55,10 @@ public class InMemoryUserRepository implements UserRepository {
     @Override
     public void save(User user) {
         users.add(user);
+    }
+
+    @Override
+    public void delete(User user) {
+        users.remove(user);
     }
 }

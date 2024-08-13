@@ -1,5 +1,6 @@
 package dev.codesoapbox.legacysystemexample.authentication.presentation.controllers;
 
+import dev.codesoapbox.legacysystemexample.authentication.domain.model.SimpleUser;
 import dev.codesoapbox.legacysystemexample.authentication.domain.model.User;
 import dev.codesoapbox.legacysystemexample.authentication.domain.repositories.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 @RestController
@@ -37,14 +39,39 @@ public class UserController {
     @PostMapping()
     @Operation(summary = "Helper endpoint that creates a new user")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "User created successfully")})
-    public ResponseEntity<Void> createUser(@RequestBody User user) {
-        Optional<User> existingUser = userRepository.findByUsername(user.getUsername());
+            @ApiResponse(responseCode = "201", description = "User created successfully"),
+            @ApiResponse(responseCode = "409", description = "User already exists")})
+    public ResponseEntity<Void> createUser(@RequestBody SimpleUser simpleUser) {
+        String username = simpleUser.getName().toLowerCase(Locale.ROOT);
+        Optional<User> existingUser = userRepository.findByUsername(username);
         if (existingUser.isPresent()) {
             return ResponseEntity.status(409).build();
         }
+        User user = User.builder()
+                .username(username)
+                .email(username + "@example.com")
+                .firstName(simpleUser.getName())
+                .lastName(simpleUser.getLastName())
+                .password("password")
+                .build();
+
         userRepository.save(user);
+
         return ResponseEntity.status(201).build();
     }
 
+    @DeleteMapping("/{username}")
+    @Operation(summary = "Helper endpoint that deletes a user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "User deleted successfully"),
+            @ApiResponse(responseCode = "404", description = "User not found")})
+    public ResponseEntity<Void> deleteUser(@PathVariable String username) {
+        Optional<User> user = userRepository.findByUsername(username);
+        if (user.isEmpty()) {
+            return ResponseEntity.status(404).build();
+        }
+        userRepository.delete(user.get());
+
+        return ResponseEntity.status(204).build();
+    }
 }
