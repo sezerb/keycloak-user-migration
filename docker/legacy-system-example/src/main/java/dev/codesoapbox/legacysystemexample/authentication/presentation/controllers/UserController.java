@@ -18,6 +18,7 @@ import java.util.Optional;
 @RestController
 @RequestMapping(value = AuthenticationControllerPaths.USERS_PATH, produces = MediaType.APPLICATION_JSON_VALUE)
 @Tag(name = "User debug", description = "Not required by the Keycloak migration plugin, created to help with debugging")
+@CrossOrigin(origins = "*")
 public class UserController {
 
     private final UserRepository userRepository;
@@ -42,7 +43,7 @@ public class UserController {
             @ApiResponse(responseCode = "201", description = "User created successfully"),
             @ApiResponse(responseCode = "409", description = "User already exists")})
     public ResponseEntity<Void> createUser(@RequestBody SimpleUser simpleUser) {
-        String username = simpleUser.getName().toLowerCase(Locale.ROOT);
+        String username = simpleUser.getFirstName().toLowerCase(Locale.ROOT);
         Optional<User> existingUser = userRepository.findByUsername(username);
         if (existingUser.isPresent()) {
             return ResponseEntity.status(409).build();
@@ -50,7 +51,7 @@ public class UserController {
         User user = User.builder()
                 .username(username)
                 .email(username + "@example.com")
-                .firstName(simpleUser.getName())
+                .firstName(simpleUser.getFirstName())
                 .lastName(simpleUser.getLastName())
                 .password("password")
                 .build();
