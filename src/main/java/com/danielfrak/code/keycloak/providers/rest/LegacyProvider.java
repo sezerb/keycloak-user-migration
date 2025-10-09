@@ -11,6 +11,7 @@ import org.keycloak.component.ComponentModel;
 import org.keycloak.credential.CredentialInput;
 import org.keycloak.credential.CredentialInputUpdater;
 import org.keycloak.credential.CredentialInputValidator;
+import org.keycloak.credential.hash.PasswordHashProvider;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
@@ -36,6 +37,7 @@ public class LegacyProvider implements UserStorageProvider,
 
     private static final Logger LOG = Logger.getLogger(LegacyProvider.class);
     private static final Set<String> supportedCredentialTypes = Collections.singleton(PasswordCredentialModel.TYPE);
+    private static final String ATTR_MIGRATED = "legacy-password-migrated";
     private final KeycloakSession session;
     private final LegacyUserService legacyUserService;
     private final UserModelFactory userModelFactory;
@@ -80,22 +82,66 @@ public class LegacyProvider implements UserStorageProvider,
         }
 
         var userIdentifier = getUserIdentifier(userModel);
-        LOG.infof("isValid checking legacy password for identifier=%s (may be username or id depending on config)", userIdentifier);
+        LOG.infof("isValid credential check for identifier=%s (may be username or id depending on config)", userIdentifier);
 
+        boolean migrated = userModel.getFirstAttribute(ATTR_MIGRATED) != null;
+        boolean hasLocalPassword = userModel.credentialManager().getStoredCredentialsStream()
+                .anyMatch(c -> PasswordCredentialModel.TYPE.equals(c.getType()));
+
+        // Post-migration path: rely solely on locally stored password hash; do NOT call external service.
+        if (migrated && hasLocalPassword) {
+            LOG.debugf("isValid using local hash validation for already migrated user %s", userModel.getUsername());
+            boolean valid = verifyLocalPassword(userModel, input.getChallengeResponse());
+            if (!valid) {
+                LOG.infof("isValid local hash validation failed for identifier=%s", userIdentifier);
+                return false;
+            }
+            LOG.infof("isValid finished successfully for identifier=%s (post-migration local validation)", userIdentifier);
+            return true;
+        }
+
+        // First-time migration (no migrated attribute yet) - validate against legacy service
+        LOG.debugf("isValid performing first-time legacy password validation for user %s", userModel.getUsername());
         if (!legacyUserService.isPasswordValid(userIdentifier, input.getChallengeResponse())) {
-            LOG.infof("isValid password invalid for identifier=%s", userIdentifier);
+            LOG.infof("isValid password invalid for identifier=%s (legacy first-time)", userIdentifier);
             return false;
         }
 
         if (passwordDoesNotBreakPolicy(realmModel, userModel, input.getChallengeResponse())) {
-            LOG.infof("isValid legacy password accepted and complies with policy for identifier=%s. Updating stored credential.", userIdentifier);
+            LOG.infof("isValid legacy password accepted and complies with policy for identifier=%s. Updating stored credential and marking migrated.", userIdentifier);
             userModel.credentialManager().updateCredential(input);
+            userModel.setSingleAttribute(ATTR_MIGRATED, "true");
         } else {
             LOG.infof("isValid legacy password accepted but violates policy for identifier=%s. Adding UPDATE_PASSWORD required action.", userIdentifier);
             addUpdatePasswordAction(userModel, userIdentifier);
+            // We do NOT set migrated attribute yet; user must change password to compliant one.
         }
-        LOG.infof("isValid finished successfully for identifier=%s", userIdentifier);
+        LOG.infof("isValid finished successfully for identifier=%s (first-time migration)", userIdentifier);
         return true;
+    }
+
+    private boolean verifyLocalPassword(UserModel userModel, String rawPassword) {
+        var stored = userModel.credentialManager().getStoredCredentialsStream()
+                .filter(c -> PasswordCredentialModel.TYPE.equals(c.getType()))
+                .findFirst();
+        if (stored.isEmpty()) {
+            LOG.debugf("verifyLocalPassword: no stored credential found for user %s", userModel.getUsername());
+            return false;
+        }
+        var pcm = PasswordCredentialModel.createFromCredentialModel(stored.get());
+        var data = pcm.getPasswordCredentialData();
+        var algorithm = data.getAlgorithm();
+        var hash = session.getProvider(PasswordHashProvider.class, algorithm);
+        if (hash == null) {
+            LOG.warnf("verifyLocalPassword: no PasswordHashProvider found for algorithm %s", algorithm);
+            return false;
+        }
+        try {
+            return hash.verify(rawPassword, pcm);
+        } catch (Exception e) {
+            LOG.warnf(e, "verifyLocalPassword: error while verifying password for user %s", userModel.getUsername());
+            return false;
+        }
     }
 
     private String getUserIdentifier(UserModel userModel) {
