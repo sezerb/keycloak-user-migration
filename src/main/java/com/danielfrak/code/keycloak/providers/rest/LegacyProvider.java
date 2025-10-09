@@ -1,8 +1,11 @@
 package com.danielfrak.code.keycloak.providers.rest;
 
-import com.danielfrak.code.keycloak.providers.rest.remote.LegacyUser;
-import com.danielfrak.code.keycloak.providers.rest.remote.LegacyUserService;
-import com.danielfrak.code.keycloak.providers.rest.remote.UserModelFactory;
+import java.util.Collections;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
+
 import org.jboss.logging.Logger;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.credential.CredentialInput;
@@ -18,11 +21,9 @@ import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.user.ImportedUserValidation;
 import org.keycloak.storage.user.UserLookupProvider;
 
-import java.util.Collections;
-import java.util.Optional;
-import java.util.Set;
-import java.util.function.Supplier;
-import java.util.stream.Stream;
+import com.danielfrak.code.keycloak.providers.rest.remote.LegacyUser;
+import com.danielfrak.code.keycloak.providers.rest.remote.LegacyUserService;
+import com.danielfrak.code.keycloak.providers.rest.remote.UserModelFactory;
 
 /**
  * Provides legacy user migration functionality
@@ -68,22 +69,32 @@ public class LegacyProvider implements UserStorageProvider,
 
     @Override
     public boolean isValid(RealmModel realmModel, UserModel userModel, CredentialInput input) {
+        LOG.infof("isValid invoked for username=%s id=%s credentialType=%s", userModel.getUsername(), userModel.getId(), input == null ? "<null>" : input.getType());
+        if (input == null) {
+            LOG.infof("isValid early return: input is null for user=%s", userModel.getUsername());
+            return false;
+        }
         if (!supportsCredentialType(input.getType())) {
+            LOG.infof("isValid early return: unsupported credentialType=%s for user=%s", input.getType(), userModel.getUsername());
             return false;
         }
 
         var userIdentifier = getUserIdentifier(userModel);
+        LOG.infof("isValid checking legacy password for identifier=%s (may be username or id depending on config)", userIdentifier);
 
         if (!legacyUserService.isPasswordValid(userIdentifier, input.getChallengeResponse())) {
+            LOG.infof("isValid password invalid for identifier=%s", userIdentifier);
             return false;
         }
 
         if (passwordDoesNotBreakPolicy(realmModel, userModel, input.getChallengeResponse())) {
+            LOG.infof("isValid legacy password accepted and complies with policy for identifier=%s. Updating stored credential.", userIdentifier);
             userModel.credentialManager().updateCredential(input);
         } else {
+            LOG.infof("isValid legacy password accepted but violates policy for identifier=%s. Adding UPDATE_PASSWORD required action.", userIdentifier);
             addUpdatePasswordAction(userModel, userIdentifier);
         }
-
+        LOG.infof("isValid finished successfully for identifier=%s", userIdentifier);
         return true;
     }
 
@@ -123,7 +134,15 @@ public class LegacyProvider implements UserStorageProvider,
 
     @Override
     public boolean isConfiguredFor(RealmModel realmModel, UserModel userModel, String s) {
-        return false;
+        LOG.infof("isConfiguredFor invoked for username=%s id=%s credentialType=%s", userModel.getUsername(), userModel.getId(), s);
+        if (!supportsCredentialType(s)) {
+            LOG.infof("isConfiguredFor returning false: unsupported credentialType=%s for user=%s", s, userModel.getUsername());
+            return false;
+        }
+        boolean configured = userModel.credentialManager().getStoredCredentialsStream()
+                .anyMatch(c -> s.equals(c.getType()));
+        LOG.infof("isConfiguredFor result for user=%s credentialType=%s -> %s", userModel.getUsername(), s, configured);
+        return configured;
     }
 
     @Override
@@ -137,6 +156,7 @@ public class LegacyProvider implements UserStorageProvider,
         return false;
     }
 
+    @SuppressWarnings("unused")
     private void severFederationLink(UserModel user) {
         LOG.info("Severing federation link for " + user.getUsername());
         String link = user.getFederationLink();
